@@ -11,7 +11,7 @@ import type {
 
 export function useSettings() {
   const notificationSettings = ref<NotificationSettings>({})
-  const aiSettings = ref<AiSettings>({})
+  const aiSettings = ref<AiSettings>({ STREAM: false })
   const rotationSettings = ref<RotationSettings>({})
   const systemStatus = ref<SystemStatus | null>(null)
   const isReady = ref(false)

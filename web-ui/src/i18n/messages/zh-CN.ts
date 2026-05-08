@@ -250,7 +250,13 @@ const zhCN = {
       keyMissing: '未配置，为安全起见不回显。',
       modelName: '模型名称',
       proxy: '代理地址 (可选)',
+      streamLabel: '流式输出',
+      streamDescription: '勾选后，AI 连接测试与实际调用都会附带 stream=true。',
+      failureThresholdLabel: 'AI 连续失败终止阈值',
+      failureThresholdDescription: '连续失败达到该次数后，任务将终止并提示错误。',
+      failureThresholdPlaceholder: '例如 3',
       loading: '正在加载 AI 配置...',
+
       testConnection: '测试连接',
       save: '保存 AI 设置',
       saved: 'AI 设置已保存',

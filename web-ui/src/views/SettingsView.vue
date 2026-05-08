@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
 import { getPromptContent, listPrompts, updatePrompt } from '@/api/prompts'
+import { Switch } from '@/components/ui/switch'
 import NotificationSettingsPanel from '@/components/settings/NotificationSettingsPanel.vue'
 import RotationSettingsPanel from '@/components/settings/RotationSettingsPanel.vue'
 const { t } = useI18n()
@@ -37,6 +38,8 @@ const {
 const activeTab = ref('ai')
 const route = useRoute()
 const validTabs = new Set(['notifications', 'ai', 'rotation', 'status', 'prompts'])
+
+const streamEnabled = ref(false)
 
 const promptFiles = ref<string[]>([])
 const selectedPrompt = ref<string | null>(null)
@@ -77,7 +80,9 @@ async function handleTestNotification(payload: {
 
 async function handleSaveAi() {
   try {
+    aiSettings.value.STREAM = streamEnabled.value
     await saveAiSettings()
+    streamEnabled.value = !!aiSettings.value.STREAM
     notifySuccess(t('settings.ai.saved'))
   } catch (e) {
     notifyError(t('settings.ai.saveFailed'), (e as Error).message)
@@ -93,8 +98,18 @@ async function handleSaveRotation() {
   }
 }
 
+function normalizeFailureThreshold() {
+  const current = Number(aiSettings.value.AI_MAX_CONSECUTIVE_FAILURES)
+  if (!Number.isFinite(current) || current < 1) {
+    aiSettings.value.AI_MAX_CONSECUTIVE_FAILURES = 1
+    return
+  }
+  aiSettings.value.AI_MAX_CONSECUTIVE_FAILURES = Math.floor(current)
+}
+
 async function handleTestAi() {
   try {
+    aiSettings.value.STREAM = streamEnabled.value
     const res = await testAiConnection()
     notifySuccess(t('settings.ai.testSuccess'), res.message)
   } catch (e) {
@@ -148,6 +163,14 @@ watch(activeTab, (tab) => {
     fetchPrompts()
   }
 })
+
+watch(
+  () => aiSettings.value.STREAM,
+  (value) => {
+    streamEnabled.value = !!value
+  },
+  { immediate: true }
+)
 
 watch(
   () => route.query.tab,
@@ -225,6 +248,21 @@ watch(selectedPrompt, async (value) => {
             <div class="grid gap-2">
               <Label>{{ t('settings.ai.proxy') }}</Label>
               <Input v-model="aiSettings.PROXY_URL" placeholder="http://127.0.0.1:7890" />
+            </div>
+            <div class="flex items-center justify-between rounded-lg border p-3">
+              <div class="space-y-1">
+                <Label>{{ t('settings.ai.streamLabel') }}</Label>
+                <p class="text-xs text-gray-500">{{ t('settings.ai.streamDescription') }}</p>
+              </div>
+              <Switch
+                :model-value="streamEnabled"
+                @update:model-value="(v: boolean) => { streamEnabled = !!v }"
+              />
+            </div>
+            <div class="grid gap-2">
+              <Label>{{ t('settings.ai.failureThresholdLabel') }}</Label>
+              <Input v-model.number="aiSettings.AI_MAX_CONSECUTIVE_FAILURES" type="number" min="1" step="1" :placeholder="t('settings.ai.failureThresholdPlaceholder')" @blur="normalizeFailureThreshold" />
+              <p class="text-xs text-gray-500">{{ t('settings.ai.failureThresholdDescription') }}</p>
             </div>
           </CardContent>
           <CardContent v-else class="py-8 text-sm text-gray-500">
