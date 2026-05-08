@@ -20,17 +20,35 @@ TASK_IMAGE_DIR_PREFIX = "task_images_"
 API_URL_PATTERN = "h5api.m.goofish.com/h5/mtop.taobao.idlemtopsearch.pc.search"
 DETAIL_API_URL_PATTERN = "h5api.m.goofish.com/h5/mtop.taobao.idle.pc.detail"
 
+
+def _env_int(key: str, default: int) -> int:
+    value = os.getenv(key)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    value = os.getenv(key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 # --- Environment Variables ---
-API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY=os.getenv("OPENAI_API_KEY")
 BASE_URL = os.getenv("OPENAI_BASE_URL")
 MODEL_NAME = os.getenv("OPENAI_MODEL_NAME")
 PROXY_URL = os.getenv("PROXY_URL")
 NTFY_TOPIC_URL = os.getenv("NTFY_TOPIC_URL")
 GOTIFY_URL = os.getenv("GOTIFY_URL")
-GOTIFY_TOKEN = os.getenv("GOTIFY_TOKEN")
+GOTIFY_TOKEN=os.getenv("GOTIFY_TOKEN")
 BARK_URL = os.getenv("BARK_URL")
 WX_BOT_URL = os.getenv("WX_BOT_URL")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEBHOOK_METHOD = os.getenv("WEBHOOK_METHOD", "POST").upper()
@@ -46,6 +64,7 @@ AI_DEBUG_MODE = os.getenv("AI_DEBUG_MODE", "false").lower() == "true"
 SKIP_AI_ANALYSIS = os.getenv("SKIP_AI_ANALYSIS", "false").lower() == "true"
 ENABLE_THINKING = os.getenv("ENABLE_THINKING", "false").lower() == "true"
 ENABLE_RESPONSE_FORMAT = os.getenv("ENABLE_RESPONSE_FORMAT", "true").lower() == "true"
+AI_MAX_CONSECUTIVE_FAILURES = _env_int("AI_MAX_CONSECUTIVE_FAILURES", 3)
 
 # --- Headers ---
 IMAGE_DOWNLOAD_HEADERS = {
@@ -103,5 +122,9 @@ def get_ai_request_params(**kwargs):
                 kwargs["text"] = text_config
             else:
                 del kwargs["text"]
-    
+
+    # stream 优先使用当前调用显式传入值，否则回退到最新环境变量
+    kwargs["stream"] = bool(kwargs.get("stream", _env_bool("STREAM", False)))
+
     return kwargs
+

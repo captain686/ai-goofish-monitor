@@ -204,6 +204,7 @@ class AIClient:
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
                 enable_json_output=use_response_format,
+                stream=self.settings.stream,
             )
             if not use_temperature:
                 request_params = remove_temperature_param(request_params)

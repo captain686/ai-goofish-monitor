@@ -26,6 +26,7 @@ from src.config import (
     RUNNING_IN_DOCKER,
     SKIP_AI_ANALYSIS,
     STATE_FILE,
+    AI_MAX_CONSECUTIVE_FAILURES,
 )
 from src.parsers import (
     _parse_search_results_json,
@@ -47,6 +48,7 @@ from src.failure_guard import FailureGuard
 from src.services.account_strategy_service import resolve_account_runtime_plan
 from src.infrastructure.persistence.storage_names import build_result_filename
 from src.services.item_analysis_dispatcher import (
+    AIAnalysisAbortError,
     ItemAnalysisDispatcher,
     ItemAnalysisJob,
 )
@@ -571,6 +573,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             context_kwargs = _default_context_options()
             storage_state_arg = state_file
             analysis_dispatcher: Optional[ItemAnalysisDispatcher] = None
+            analysis_abort_error: Optional[AIAnalysisAbortError] = None
 
             if isinstance(snapshot_data, dict):
                 # 新版扩展导出的增强快照，包含环境和Header
@@ -605,6 +608,13 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                 ai_analyzer=get_ai_analysis,
                 notifier=send_ntfy_notification,
                 saver=save_to_jsonl,
+                max_consecutive_ai_failures=max(
+                    1,
+                    _as_int(
+                        task_config.get("ai_max_consecutive_failures"),
+                        AI_MAX_CONSECUTIVE_FAILURES,
+                    ),
+                ),
             )
 
             # 增强反检测脚本（模拟真实移动设备）
@@ -1153,6 +1163,9 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             except asyncio.CancelledError:
                 log_time("收到取消信号，正在终止当前爬虫任务...")
                 raise
+            except AIAnalysisAbortError as e:
+                print(f"\n{e}")
+                raise
             except Exception as e:
                 if type(e).__name__ == "TargetClosedError":
                     log_time("浏览器已关闭，忽略后续异常（可能是任务被停止）。")
@@ -1166,12 +1179,19 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             finally:
                 if analysis_dispatcher is not None:
                     log_time("等待后台分析任务完成...")
-                    await analysis_dispatcher.join()
+                    try:
+                        await analysis_dispatcher.join()
+                    except AIAnalysisAbortError as e:
+                        analysis_abort_error = e
+                        print(f"\n{e}")
                 log_time("任务执行完毕，浏览器将在5秒后自动关闭...")
                 await asyncio.sleep(5)
                 if debug_limit:
                     input("按回车键关闭浏览器...")
                 await browser.close()
+
+            if analysis_abort_error is not None:
+                raise analysis_abort_error
 
         return processed_item_count
 

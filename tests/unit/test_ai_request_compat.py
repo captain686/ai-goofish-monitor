@@ -1,4 +1,6 @@
 from src.services.ai_request_compat import (
+    CHAT_COMPLETIONS_API_MODE,
+    build_ai_request_params,
     is_json_output_unsupported_error,
     is_responses_api_unsupported_error,
     is_temperature_unsupported_error,
@@ -82,3 +84,35 @@ def test_json_output_error_not_triggered_by_unrelated_400():
 def test_json_output_error_not_triggered_without_body():
     err = Exception("some random 400 error")
     assert is_json_output_unsupported_error(err) is False
+
+
+def test_build_ai_request_params_sets_stream_true_when_enabled_for_chat_completions():
+    params = build_ai_request_params(
+        CHAT_COMPLETIONS_API_MODE,
+        model="gpt-test",
+        messages=[{"role": "user", "content": "hi"}],
+        stream=True,
+    )
+
+    assert params["stream"] is True
+
+
+def test_build_ai_request_params_does_not_set_stream_when_disabled():
+    params = build_ai_request_params(
+        CHAT_COMPLETIONS_API_MODE,
+        model="gpt-test",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert "stream" not in params
+
+
+def test_build_ai_request_params_sets_stream_true_when_enabled_for_responses():
+    params = build_ai_request_params(
+        "responses",
+        model="gpt-test",
+        messages=[{"role": "user", "content": "hi"}],
+        stream=True,
+    )
+
+    assert params["stream"] is True

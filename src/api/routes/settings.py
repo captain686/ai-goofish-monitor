@@ -69,6 +69,18 @@ def _normalize_bool_value(value: bool) -> str:
     return "true" if value else "false"
 
 
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    return default
+
+
 class NotificationSettingsModel(BaseModel):
     """通知设置模型"""
 
@@ -104,6 +116,8 @@ class AISettingsModel(BaseModel):
     OPENAI_MODEL_NAME: Optional[str] = None
     SKIP_AI_ANALYSIS: Optional[bool] = None
     PROXY_URL: Optional[str] = None
+    STREAM: Optional[bool] = None
+    AI_MAX_CONSECUTIVE_FAILURES: Optional[int] = None
 
 
 class RotationSettingsModel(BaseModel):
@@ -259,6 +273,8 @@ async def get_ai_settings():
         "OPENAI_MODEL_NAME": env_manager.get_value("OPENAI_MODEL_NAME", ""),
         "SKIP_AI_ANALYSIS": env_manager.get_value("SKIP_AI_ANALYSIS", "false").lower() == "true",
         "PROXY_URL": env_manager.get_value("PROXY_URL", ""),
+        "STREAM": env_manager.get_value("STREAM", "false").lower() == "true",
+        "AI_MAX_CONSECUTIVE_FAILURES": _env_int("AI_MAX_CONSECUTIVE_FAILURES", 3),
     }
 
 
@@ -275,6 +291,12 @@ async def update_ai_settings(settings: AISettingsModel):
         updates["SKIP_AI_ANALYSIS"] = str(settings.SKIP_AI_ANALYSIS).lower()
     if settings.PROXY_URL is not None:
         updates["PROXY_URL"] = settings.PROXY_URL
+    if settings.STREAM is not None:
+        updates["STREAM"] = str(settings.STREAM).lower()
+    if settings.AI_MAX_CONSECUTIVE_FAILURES is not None:
+        if settings.AI_MAX_CONSECUTIVE_FAILURES < 1:
+            raise HTTPException(status_code=422, detail="AI_MAX_CONSECUTIVE_FAILURES 必须大于等于 1")
+        updates["AI_MAX_CONSECUTIVE_FAILURES"] = str(settings.AI_MAX_CONSECUTIVE_FAILURES)
 
     success = env_manager.update_values(updates)
     if not success:
@@ -305,6 +327,7 @@ async def test_ai_settings(settings: dict):
             client_params["http_client"] = httpx.Client(proxy=proxy_url)
 
         model_name = settings.get("OPENAI_MODEL_NAME", "")
+        stream = bool(settings.get("STREAM", False))
         client = OpenAI(**client_params)
         messages = [{"role": "user", "content": AI_TEST_PROMPT}]
         api_mode = CHAT_COMPLETIONS_API_MODE
@@ -318,6 +341,7 @@ async def test_ai_settings(settings: dict):
                     model=model_name,
                     messages=messages,
                     max_output_tokens=AI_TEST_MAX_OUTPUT_TOKENS,
+                    stream=stream,
                 ),
             )
         except Exception as exc:
@@ -332,6 +356,7 @@ async def test_ai_settings(settings: dict):
                     model=model_name,
                     messages=messages,
                     max_output_tokens=AI_TEST_MAX_OUTPUT_TOKENS,
+                    stream=stream,
                 ),
             )
 

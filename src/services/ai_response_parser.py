@@ -25,6 +25,10 @@ def extract_ai_response_content(response: Any) -> str:
     if isinstance(output_text, str):
         return _normalize_text_content(output_text)
 
+    stream_text = _extract_stream_text(response)
+    if stream_text:
+        return _normalize_text_content(stream_text)
+
     choices = getattr(response, "choices", None)
     if choices:
         message = getattr(choices[0], "message", None)
@@ -76,6 +80,24 @@ def _coerce_content_parts(content: Any) -> str:
         text = getattr(item, "text", None)
         if isinstance(text, str):
             parts.append(text)
+    return "".join(parts)
+
+
+def _extract_stream_text(response: Any) -> str:
+    """提取 stream 响应中累积的文本。"""
+    text = getattr(response, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text
+
+    parts: list[str] = []
+    for item in getattr(response, "output", []) or []:
+        content = getattr(item, "content", None)
+        if not content:
+            continue
+        for chunk in content:
+            chunk_text = getattr(chunk, "text", None)
+            if isinstance(chunk_text, str):
+                parts.append(chunk_text)
     return "".join(parts)
 
 

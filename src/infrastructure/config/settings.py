@@ -47,7 +47,9 @@ class AISettings(_EnvSettings):
     debug_mode: bool = _env_field(False, "AI_DEBUG_MODE")
     enable_response_format: bool = _env_field(True, "ENABLE_RESPONSE_FORMAT")
     enable_thinking: bool = _env_field(False, "ENABLE_THINKING")
+    stream: bool = _env_field(False, "STREAM")
     skip_analysis: bool = _env_field(False, "SKIP_AI_ANALYSIS")
+    ai_max_consecutive_failures: int = _env_field(3, "AI_MAX_CONSECUTIVE_FAILURES")
 
     def is_configured(self) -> bool:
         """检查AI是否已正确配置"""

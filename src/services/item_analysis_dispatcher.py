@@ -18,6 +18,10 @@ Notifier = Callable[[dict, str], Awaitable[None]]
 Saver = Callable[[dict, str], Awaitable[bool]]
 
 
+class AIAnalysisAbortError(RuntimeError):
+    """Raised when consecutive AI analysis failures exceed threshold."""
+
+
 @dataclass(frozen=True)
 class ItemAnalysisJob:
     keyword: str
@@ -45,6 +49,7 @@ class ItemAnalysisDispatcher:
         ai_analyzer: AIAnalyzer,
         notifier: Notifier,
         saver: Saver,
+        max_consecutive_ai_failures: int = 3,
     ) -> None:
         self._semaphore = asyncio.Semaphore(max(1, concurrency))
         self._skip_ai_analysis = skip_ai_analysis
@@ -53,6 +58,8 @@ class ItemAnalysisDispatcher:
         self._ai_analyzer = ai_analyzer
         self._notifier = notifier
         self._saver = saver
+        self._max_consecutive_ai_failures = max(1, int(max_consecutive_ai_failures))
+        self._consecutive_ai_failures = 0
         self._tasks: set[asyncio.Task] = set()
         self.completed_count = 0
 
@@ -74,6 +81,21 @@ class ItemAnalysisDispatcher:
         item_data = record.get("商品信息", {}) or {}
         record["卖家信息"] = await self._load_seller_info(job)
         record["ai_analysis"] = await self._build_analysis_result(job, record)
+
+        if job.decision_mode == "ai" and not record["ai_analysis"].get("_analysis_ok", False):
+            self._consecutive_ai_failures += 1
+            print(
+                f"   [AI分析] 连续失败 {self._consecutive_ai_failures}/{self._max_consecutive_ai_failures}，跳过保存该条结果。"
+            )
+            if self._consecutive_ai_failures >= self._max_consecutive_ai_failures:
+                raise AIAnalysisAbortError(
+                    f"AI分析连续失败 {self._consecutive_ai_failures} 次，终止任务。"
+                )
+            return
+
+        self._consecutive_ai_failures = 0
+        record["ai_analysis"].pop("_analysis_ok", None)
+
         if await self._saver(record, job.keyword):
             self.completed_count += 1
         await self._notify_if_recommended(item_data, record["ai_analysis"])
@@ -99,7 +121,9 @@ class ItemAnalysisDispatcher:
 
     def _build_keyword_result(self, job: ItemAnalysisJob, record: dict) -> dict:
         search_text = build_search_text(record)
-        return evaluate_keyword_rules(list(job.keyword_rules), search_text)
+        result = evaluate_keyword_rules(list(job.keyword_rules), search_text)
+        result["_analysis_ok"] = True
+        return result
 
     def _build_skip_ai_result(self) -> dict:
         return {
@@ -107,6 +131,7 @@ class ItemAnalysisDispatcher:
             "is_recommended": True,
             "reason": "商品已跳过AI分析，直接通知",
             "keyword_hit_count": 0,
+            "_analysis_ok": True,
         }
 
     def _build_ai_error_result(self, reason: str, *, error: str = "") -> dict:
@@ -115,6 +140,7 @@ class ItemAnalysisDispatcher:
             "is_recommended": False,
             "reason": reason,
             "keyword_hit_count": 0,
+            "_analysis_ok": False,
         }
         if error:
             payload["error"] = error
@@ -134,6 +160,7 @@ class ItemAnalysisDispatcher:
                 )
             ai_result.setdefault("analysis_source", "ai")
             ai_result.setdefault("keyword_hit_count", 0)
+            ai_result["_analysis_ok"] = True
             return ai_result
         except Exception as exc:
             return self._build_ai_error_result(

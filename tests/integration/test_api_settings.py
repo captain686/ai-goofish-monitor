@@ -22,6 +22,8 @@ _SETTINGS_ENV_KEYS = [
     "OPENAI_MODEL_NAME",
     "SKIP_AI_ANALYSIS",
     "PROXY_URL",
+    "STREAM",
+    "AI_MAX_CONSECUTIVE_FAILURES",
     "NTFY_TOPIC_URL",
     "GOTIFY_URL",
     "GOTIFY_TOKEN",
@@ -338,6 +340,8 @@ def test_ai_settings_fall_back_to_runtime_environment_when_env_file_missing(tmp_
         "OPENAI_MODEL_NAME": "runtime-model",
         "SKIP_AI_ANALYSIS": False,
         "PROXY_URL": "http://127.0.0.1:7890",
+        "STREAM": False,
+        "AI_MAX_CONSECUTIVE_FAILURES": 3,
     }
 
     status_response = client.get("/api/settings/status")
@@ -437,3 +441,220 @@ def test_ai_test_endpoint_falls_back_to_responses_when_chat_completions_api_404(
     assert request_history[0][1]["messages"][0]["content"] == settings.AI_TEST_PROMPT
     assert request_history[1][0] == "responses"
     assert request_history[1][1]["input"][0]["content"][0]["text"] == settings.AI_TEST_PROMPT
+
+
+def test_ai_test_endpoint_passes_stream_when_enabled(tmp_path, monkeypatch):
+    _clear_settings_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(env_manager, "env_file", env_file)
+    client = _build_settings_client()
+    request_history = []
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.responses = type(
+                "_Responses",
+                (),
+                {"create": self._responses_create},
+            )()
+            self.chat = type(
+                "_Chat",
+                (),
+                {
+                    "completions": type(
+                        "_Completions",
+                        (),
+                        {"create": self._chat_create},
+                    )()
+                },
+            )()
+
+        def _responses_create(self, **kwargs):
+            request_history.append(("responses", kwargs))
+            return type(
+                "_Response",
+                (),
+                {"output_text": "OK"},
+            )()
+
+        def _chat_create(self, **kwargs):
+            request_history.append(("chat", kwargs))
+            return type(
+                "_ChatResponse",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "_Choice",
+                            (),
+                            {
+                                "message": type(
+                                    "_Msg",
+                                    (),
+                                    {"content": "OK"},
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
+
+    import openai
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+
+    response = client.post(
+        "/api/settings/ai/test",
+        json={
+            "OPENAI_API_KEY": "demo",
+            "OPENAI_BASE_URL": "https://example.com/v1/",
+            "OPENAI_MODEL_NAME": "demo-model",
+            "STREAM": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert request_history[0][0] == "chat"
+    assert request_history[0][1]["stream"] is True
+
+
+def test_update_ai_settings_persists_failure_threshold(tmp_path, monkeypatch):
+    _clear_settings_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(env_manager, "env_file", env_file)
+    client = _build_settings_client()
+
+    response = client.put(
+        "/api/settings/ai",
+        json={
+            "OPENAI_BASE_URL": "https://example.com/v1",
+            "OPENAI_MODEL_NAME": "demo-model",
+            "AI_MAX_CONSECUTIVE_FAILURES": 5,
+        },
+    )
+
+    assert response.status_code == 200
+
+    ai_response = client.get("/api/settings/ai")
+    assert ai_response.status_code == 200
+    assert ai_response.json()["AI_MAX_CONSECUTIVE_FAILURES"] == 5
+
+
+def test_update_ai_settings_persists_stream_option(tmp_path, monkeypatch):
+    _clear_settings_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(env_manager, "env_file", env_file)
+    client = _build_settings_client()
+
+    response = client.put(
+        "/api/settings/ai",
+        json={
+            "OPENAI_BASE_URL": "https://example.com/v1",
+            "OPENAI_MODEL_NAME": "demo-model",
+            "STREAM": True,
+        },
+    )
+
+    assert response.status_code == 200
+
+    ai_response = client.get("/api/settings/ai")
+    assert ai_response.status_code == 200
+    assert ai_response.json()["STREAM"] is True
+
+
+def test_ai_runtime_uses_stream_from_env(tmp_path, monkeypatch):
+    _clear_settings_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(env_manager, "env_file", env_file)
+    client = _build_settings_client()
+    request_history = []
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.responses = type(
+                "_Responses",
+                (),
+                {"create": self._responses_create},
+            )()
+            self.chat = type(
+                "_Chat",
+                (),
+                {
+                    "completions": type(
+                        "_Completions",
+                        (),
+                        {"create": self._chat_create},
+                    )()
+                },
+            )()
+
+        def _responses_create(self, **kwargs):
+            request_history.append(("responses", kwargs))
+            return type(
+                "_Response",
+                (),
+                {"output_text": "OK"},
+            )()
+
+        def _chat_create(self, **kwargs):
+            request_history.append(("chat", kwargs))
+            return type(
+                "_ChatResponse",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "_Choice",
+                            (),
+                            {
+                                "message": type(
+                                    "_Msg",
+                                    (),
+                                    {"content": "OK"},
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
+
+    import openai
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+
+    response = client.post(
+        "/api/settings/ai/test",
+        json={
+            "OPENAI_API_KEY": "demo",
+            "OPENAI_BASE_URL": "https://example.com/v1/",
+            "OPENAI_MODEL_NAME": "demo-model",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert request_history[0][0] == "chat"
+    assert request_history[0][1]["stream"] is True
+
+
+def test_update_ai_settings_rejects_invalid_failure_threshold(tmp_path, monkeypatch):
+    _clear_settings_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(env_manager, "env_file", env_file)
+    client = _build_settings_client()
+
+    response = client.put(
+        "/api/settings/ai",
+        json={"AI_MAX_CONSECUTIVE_FAILURES": 0},
+    )
+
+    assert response.status_code == 422
+    assert "AI_MAX_CONSECUTIVE_FAILURES" in response.text

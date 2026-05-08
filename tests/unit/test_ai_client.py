@@ -81,6 +81,7 @@ def test_call_ai_retries_without_structured_output_when_model_rejects_it():
         model_name="fake-model",
         enable_response_format=True,
         enable_thinking=False,
+        stream=False,
     )
     request_history = []
 
@@ -117,6 +118,7 @@ def test_call_ai_falls_back_to_responses_when_chat_completions_api_is_missing():
         model_name="fake-model",
         enable_response_format=True,
         enable_thinking=False,
+        stream=False,
     )
     request_history = []
 
@@ -153,6 +155,7 @@ def test_call_ai_retries_without_temperature_when_gateway_rejects_it():
         model_name="fake-model",
         enable_response_format=False,
         enable_thinking=False,
+        stream=False,
     )
     request_history = []
 
@@ -177,12 +180,41 @@ def test_call_ai_retries_without_temperature_when_gateway_rejects_it():
     assert "temperature" not in request_history[1]
 
 
+def test_call_ai_passes_stream_when_enabled_in_settings():
+    client = AIClient.__new__(AIClient)
+    client.settings = SimpleNamespace(
+        model_name="fake-model",
+        enable_response_format=False,
+        enable_thinking=False,
+        stream=True,
+    )
+    request_history = []
+
+    async def fake_create(**kwargs):
+        request_history.append(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"ok":true}')
+                )
+            ]
+        )
+
+    client.client = _build_fake_client(fake_create)
+
+    response = asyncio.run(client._call_ai([{"role": "user", "content": "hi"}]))
+
+    assert response == '{"ok":true}'
+    assert request_history[0]["stream"] is True
+
+
 def test_call_ai_retries_when_response_content_is_empty():
     client = AIClient.__new__(AIClient)
     client.settings = SimpleNamespace(
         model_name="fake-model",
         enable_response_format=False,
         enable_thinking=False,
+        stream=False,
     )
     request_history = []
 
@@ -206,6 +238,7 @@ def test_call_ai_raises_after_all_empty_response_retries_are_exhausted():
         model_name="fake-model",
         enable_response_format=False,
         enable_thinking=False,
+        stream=False,
     )
     request_history = []
 
