@@ -49,7 +49,6 @@ export function useResults() {
   const isFileOptionsReady = ref(false)
   const hasFetchedFiles = ref(false)
   const isSavingBlacklist = ref(false)
-  const readyDelayMs = 200
   let readyTimer: ReturnType<typeof setTimeout> | null = null
 
   const STORAGE_KEY_FILTERS = 'resultFilters'
@@ -80,10 +79,7 @@ export function useResults() {
   function scheduleFileOptionsReady() {
     if (isFileOptionsReady.value || !hasFetchedFiles.value) return
     if (readyTimer) return
-    readyTimer = setTimeout(() => {
-      isFileOptionsReady.value = true
-      readyTimer = null
-    }, readyDelayMs)
+    isFileOptionsReady.value = true
   }
 
   function setSelectedFileSafely(file: string | null, source: string) {
@@ -257,6 +253,8 @@ export function useResults() {
   // ---- watchers (controlled & minimal) ----
   watch(filters, (val) => {
     localStorage.setItem(STORAGE_KEY_FILTERS, JSON.stringify(val))
+    page.value = 1
+    fetchResults()
   }, { deep: true })
 
   // single controlled watcher for selectedFile changes
