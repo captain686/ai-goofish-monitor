@@ -61,20 +61,53 @@ class ItemAnalysisDispatcher:
         self._max_consecutive_ai_failures = max(1, int(max_consecutive_ai_failures))
         self._consecutive_ai_failures = 0
         self._tasks: set[asyncio.Task] = set()
+        self._fatal_error: Exception | None = None
         self.completed_count = 0
 
     def submit(self, job: ItemAnalysisJob) -> None:
+        if self._fatal_error is not None:
+            raise self._fatal_error
         task = asyncio.create_task(self._process_with_limit(job))
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        self._tasks.discard(task)
+        # 防止 "Task exception was never retrieved"。
+        # 真正的错误在 join() 里统一抛出。
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None and self._fatal_error is None:
+            self._fatal_error = exc
+
+    def ensure_healthy(self) -> None:
+        if self._fatal_error is not None:
+            raise self._fatal_error
 
     async def join(self) -> None:
         while self._tasks:
-            await asyncio.gather(*tuple(self._tasks))
+            batch = tuple(self._tasks)
+            await asyncio.gather(*batch, return_exceptions=True)
+
+        if self._fatal_error is not None:
+            error = self._fatal_error
+            self._fatal_error = None
+            raise error
 
     async def _process_with_limit(self, job: ItemAnalysisJob) -> None:
         async with self._semaphore:
-            await self._process_job(job)
+            try:
+                await self._process_job(job)
+            except AIAnalysisAbortError as exc:
+                if self._fatal_error is None:
+                    self._fatal_error = exc
+                # 终止阈值触发后，取消其余未完成任务，缩短收敛时间。
+                for task in tuple(self._tasks):
+                    if task is not asyncio.current_task() and not task.done():
+                        task.cancel()
+                raise
 
     async def _process_job(self, job: ItemAnalysisJob) -> None:
         record = copy.deepcopy(job.final_record)

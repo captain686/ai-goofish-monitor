@@ -964,6 +964,9 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
 
                     total_items_on_page = len(basic_items)
                     for i, item_data in enumerate(basic_items, 1):
+                        if analysis_dispatcher is not None:
+                            analysis_dispatcher.ensure_healthy()
+
                         if debug_limit > 0 and processed_item_count >= debug_limit:
                             log_time(
                                 f"已达到调试上限 ({debug_limit})，停止获取新商品。"
@@ -1294,6 +1297,11 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             last_error = str(e)
             print(f"检测到风控或验证触发: {e}")
             # 风控验证通常不是简单轮换能解决的，避免无意义重试。
+            break
+        except AIAnalysisAbortError as e:
+            last_error = str(e)
+            print(f"AI分析触发终止阈值: {e}")
+            # AI 连续失败达到阈值时应立即终止整个任务，不进行账号/IP轮换重试。
             break
         except Exception as e:
             last_error = f"{type(e).__name__}: {e}"
