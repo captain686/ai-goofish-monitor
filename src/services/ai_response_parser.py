@@ -29,6 +29,9 @@ def extract_ai_response_content(response: Any) -> str:
     if stream_text:
         return _normalize_text_content(stream_text)
 
+    if _is_stream_response(response):
+        return _normalize_text_content(_consume_stream_response(response))
+
     choices = getattr(response, "choices", None)
     if choices:
         message = getattr(choices[0], "message", None)
@@ -98,6 +101,45 @@ def _extract_stream_text(response: Any) -> str:
             chunk_text = getattr(chunk, "text", None)
             if isinstance(chunk_text, str):
                 parts.append(chunk_text)
+    return "".join(parts)
+
+
+def _is_stream_response(response: Any) -> bool:
+    """判断是否为 OpenAI SDK 的 stream 响应对象。"""
+    type_name = type(response).__name__.lower()
+    if "stream" in type_name:
+        return True
+    return hasattr(response, "__iter__") and not hasattr(response, "choices")
+
+
+def _consume_stream_response(response: Any) -> str:
+    """消费 stream 对象并提取文本内容。"""
+    parts: list[str] = []
+    try:
+        for event in response:
+            # chat.completions stream chunk
+            choices = getattr(event, "choices", None)
+            if choices:
+                delta = getattr(choices[0], "delta", None)
+                if delta is not None:
+                    content = getattr(delta, "content", None)
+                    if isinstance(content, str):
+                        parts.append(content)
+                    elif isinstance(content, list):
+                        for c in content:
+                            ctext = getattr(c, "text", None)
+                            if isinstance(ctext, str):
+                                parts.append(ctext)
+
+            # responses stream event
+            event_type = getattr(event, "type", "")
+            if event_type in {"response.output_text.delta", "response.output_text"}:
+                delta_text = getattr(event, "delta", None) or getattr(event, "text", None)
+                if isinstance(delta_text, str):
+                    parts.append(delta_text)
+    except Exception:
+        pass
+
     return "".join(parts)
 
 
