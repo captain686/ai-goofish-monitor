@@ -20,7 +20,6 @@ import {
 const { t } = useI18n()
 
 const {
-  files,
   selectedFile,
   results,
   insights,
@@ -43,10 +42,20 @@ const isBlacklistDialogOpen = ref(false)
 const blacklistDraft = ref('')
 
 const selectedTaskLabel = computed(() => {
-  if (!selectedFile.value || fileOptions.value.length === 0) return null
-  const match = fileOptions.value.find((option) => option.value === selectedFile.value)
-  if (!match) return null
-  return match.taskName || null
+  const current = typeof selectedFile.value === 'string'
+    ? selectedFile.value
+    : ((selectedFile.value as any)?.file_name ?? (selectedFile.value as any)?.value ?? '')
+
+  if (!current) return ''
+
+  const match = fileOptions.value.find((option: any) => {
+    const optionValue = typeof option?.value === 'string'
+      ? option.value
+      : (option?.file_name ?? option?.value ?? '')
+    return optionValue === current
+  }) as any
+
+  return (match?.taskName || match?.task_name || match?.label || current) as string
 })
 
 const deleteConfirmText = computed(() => {
@@ -139,7 +148,6 @@ async function handleSaveBlacklistRules() {
     </div>
 
     <ResultsFilterBar
-      :files="files"
       :file-options="fileOptions"
       :is-ready="isFileOptionsReady"
       v-model:selectedFile="selectedFile"

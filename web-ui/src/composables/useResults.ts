@@ -1,17 +1,44 @@
 import { ref, reactive, watch, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
 import type { ResultInsights, ResultItem } from '@/types/result.d.ts'
 import * as resultsApi from '@/api/results'
-import type { GetResultContentParams } from '@/api/results'
+import type { ResultFileOption, GetResultContentParams } from '@/api/results'
 import { useWebSocket } from '@/composables/useWebSocket'
-import * as tasksApi from '@/api/tasks'
 
+type ResultFileEntry = ResultFileOption & { value?: string }
+
+// ---------- helpers ----------
+function isLikelyJsonObjectString(v: string): boolean {
+  const t = v.trim()
+  return (t.startsWith('{') && t.endsWith('}')) || t === '[object Object]'
+}
+
+function sanitizeFileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const t = value.trim()
+  if (!t) return null
+  if (isLikelyJsonObjectString(t)) return null
+  return t
+}
+
+function resolveFileName(entry: ResultFileEntry): string {
+  const raw = entry.file_name ?? entry.value ?? ''
+  if (typeof raw !== 'string') return ''
+  const t = raw.trim()
+  if (!t || isLikelyJsonObjectString(t)) return ''
+  return t
+}
+
+function isValidFileNameForApi(v: string): boolean {
+  return /^[^\\/\\*?:"<>|\n]+\.jsonl$/.test(v)
+}
+
+// ---------- composable ----------
 export function useResults() {
-  const { t } = useI18n()
   const route = useRoute()
-  // State
-  const files = ref<string[]>([])
+
+  // ---- state ----
+  const fileEntries = ref<ResultFileOption[]>([])
   const selectedFile = ref<string | null>(null)
   const results = ref<ResultItem[]>([])
   const insights = ref<ResultInsights | null>(null)
@@ -19,14 +46,12 @@ export function useResults() {
   const page = ref(1)
   const limit = ref(100)
   const blacklistKeywords = ref<string[]>([])
-  const taskNameByKeyword = ref<Record<string, string>>({})
   const isFileOptionsReady = ref(false)
   const hasFetchedFiles = ref(false)
-  const hasFetchedTasks = ref(false)
   const isSavingBlacklist = ref(false)
   const readyDelayMs = 200
   let readyTimer: ReturnType<typeof setTimeout> | null = null
-  
+
   const STORAGE_KEY_FILTERS = 'resultFilters'
 
   function loadPersistedFilters(): Required<Omit<GetResultContentParams, 'page' | 'limit'>> {
@@ -51,32 +76,53 @@ export function useResults() {
   const error = ref<Error | null>(null)
   const { on } = useWebSocket()
 
-  function normalizeKeyword(value: string) {
-    return value.trim().toLowerCase().replace(/\s+/g, '_')
+  // ---- internal helpers ----
+  function scheduleFileOptionsReady() {
+    if (isFileOptionsReady.value || !hasFetchedFiles.value) return
+    if (readyTimer) return
+    readyTimer = setTimeout(() => {
+      isFileOptionsReady.value = true
+      readyTimer = null
+    }, readyDelayMs)
   }
 
-  function getKeywordFromFilename(filename: string) {
-    return filename.replace(/_full_data\.jsonl$/i, '').toLowerCase()
+  function setSelectedFileSafely(file: string | null, source: string) {
+    const safe = sanitizeFileName(file)
+    if (safe !== file) {
+      console.warn('[useResults] sanitize selectedFile', { source, raw: file, safe })
+    }
+    // only assign if different (avoid unnecessary watcher triggers)
+    if (safe !== selectedFile.value) {
+      console.log('[useResults] selectedFile set', { source, from: selectedFile.value, to: safe })
+      selectedFile.value = safe
+    }
   }
 
-  // Methods
+  // ---- data fetching ----
   async function fetchFiles() {
     try {
       const fileList = await resultsApi.getResultFiles()
-      files.value = fileList
-      // If a file is selected that no longer exists, reset it.
-      // Otherwise, if nothing is selected, select the first file by default.
-      if (selectedFile.value && fileList.includes(selectedFile.value)) {
+      fileEntries.value = fileList
+
+      const validFiles = fileList
+        .map((item) => resolveFileName(item as ResultFileEntry))
+        .filter(Boolean) as string[]
+
+      // rule: ONLY this function may write selectedFile
+      if (selectedFile.value && validFiles.includes(selectedFile.value)) {
+        // keep current if still valid
         return
       }
 
-      const lastSelected = localStorage.getItem('lastSelectedResultFile')
-      if (lastSelected && fileList.includes(lastSelected)) {
-        selectedFile.value = lastSelected
+      // route override (one-shot)
+      const routeFile = sanitizeFileName(route.query.file)
+      if (routeFile && validFiles.includes(routeFile)) {
+        setSelectedFileSafely(routeFile, 'fetchFiles:route.query.file')
         return
       }
 
-      selectedFile.value = fileList[0] || null
+      // fallback: first valid file
+      setSelectedFileSafely(validFiles[0] || null, 'fetchFiles:first-valid-file')
     } catch (e) {
       if (e instanceof Error) error.value = e
     } finally {
@@ -86,7 +132,10 @@ export function useResults() {
   }
 
   async function fetchResults() {
-    if (!selectedFile.value) {
+    const file = sanitizeFileName(selectedFile.value)
+    console.log('[useResults] fetchResults input', { raw: selectedFile.value, safe: file })
+    if (!file || !isValidFileNameForApi(file)) {
+      console.warn('[useResults] fetchResults skipped invalid filename', { raw: selectedFile.value, safe: file })
       results.value = []
       totalItems.value = 0
       return
@@ -95,7 +144,7 @@ export function useResults() {
     isLoading.value = true
     error.value = null
     try {
-      const data = await resultsApi.getResultContent(selectedFile.value, {
+      const data = await resultsApi.getResultContent(file, {
         ...filters,
         page: page.value,
         limit: limit.value,
@@ -112,13 +161,13 @@ export function useResults() {
   }
 
   async function fetchInsights() {
-    if (!selectedFile.value) {
+    const file = sanitizeFileName(selectedFile.value)
+    if (!file || !isValidFileNameForApi(file)) {
       insights.value = null
       return
     }
-
     try {
-      insights.value = await resultsApi.getResultInsights(selectedFile.value)
+      insights.value = await resultsApi.getResultInsights(file)
     } catch (e) {
       if (e instanceof Error) error.value = e
       insights.value = null
@@ -126,13 +175,13 @@ export function useResults() {
   }
 
   async function fetchBlacklistRules() {
-    if (!selectedFile.value) {
+    const file = sanitizeFileName(selectedFile.value)
+    if (!file || !isValidFileNameForApi(file)) {
       blacklistKeywords.value = []
       return
     }
-
     try {
-      const data = await resultsApi.getResultBlacklistRules(selectedFile.value)
+      const data = await resultsApi.getResultBlacklistRules(file)
       blacklistKeywords.value = data.keywords || []
     } catch (e) {
       if (e instanceof Error) error.value = e
@@ -140,49 +189,7 @@ export function useResults() {
     }
   }
 
-  async function fetchTaskNameMap() {
-    try {
-      const tasks = await tasksApi.getAllTasks()
-      const mapping: Record<string, string> = {}
-      tasks.forEach((task) => {
-        if (task.keyword) {
-          mapping[normalizeKeyword(task.keyword)] = task.task_name
-        }
-      })
-      taskNameByKeyword.value = mapping
-    } catch (e) {
-      if (e instanceof Error) error.value = e
-    } finally {
-      hasFetchedTasks.value = true
-      scheduleFileOptionsReady()
-    }
-  }
-
-  function scheduleFileOptionsReady() {
-    if (isFileOptionsReady.value || !hasFetchedFiles.value || !hasFetchedTasks.value) return
-    if (readyTimer) return
-    readyTimer = setTimeout(() => {
-      isFileOptionsReady.value = true
-      readyTimer = null
-    }, readyDelayMs)
-  }
-
-  // Real-time updates
-  on('results_updated', async () => {
-    const oldFile = selectedFile.value
-    await fetchFiles()
-    // If the selected file remains the same, refresh its content (in case of append)
-    // If it changed (e.g. from null to new file), the watcher will handle it.
-    if (selectedFile.value && selectedFile.value === oldFile) {
-      fetchResults()
-      fetchInsights()
-    }
-  })
-
-  on('tasks_updated', () => {
-    fetchTaskNameMap()
-  })
-
+  // ---- exposed actions ----
   async function refreshResults() {
     const current = selectedFile.value
     await fetchFiles()
@@ -194,24 +201,19 @@ export function useResults() {
   }
 
   function exportSelectedResults() {
-    if (!selectedFile.value) return
-    resultsApi.downloadResultExport(selectedFile.value, { ...filters })
+    const file = sanitizeFileName(selectedFile.value)
+    if (!file || !isValidFileNameForApi(file)) return
+    resultsApi.downloadResultExport(file, { ...filters })
   }
 
   async function deleteSelectedFile(filename?: string) {
-    const target = filename || selectedFile.value
-    if (!target) return
+    const target = sanitizeFileName(filename) || sanitizeFileName(selectedFile.value)
+    if (!target || !isValidFileNameForApi(target)) return
     isLoading.value = true
     error.value = null
     try {
       await resultsApi.deleteResultFile(target)
-      if (selectedFile.value === target) {
-        const lastSelected = localStorage.getItem('lastSelectedResultFile')
-        if (lastSelected === target) {
-          localStorage.removeItem('lastSelectedResultFile')
-        }
-      }
-      await fetchFiles()
+      await fetchFiles() // this will also update selectedFile correctly
     } catch (e) {
       if (e instanceof Error) error.value = e
       throw e
@@ -221,12 +223,13 @@ export function useResults() {
   }
 
   async function toggleItemBlock(item: ResultItem) {
-    if (!selectedFile.value) return
+    const file = sanitizeFileName(selectedFile.value)
+    if (!file || !isValidFileNameForApi(file)) return
     const itemId = item.商品信息?.商品ID
     if (!itemId) return
     const newStatus = item._status === 'hidden' ? 'active' : 'hidden'
     try {
-      await resultsApi.updateItemStatus(selectedFile.value, itemId, newStatus)
+      await resultsApi.updateItemStatus(file, itemId, newStatus)
       await fetchResults()
     } catch (e) {
       if (e instanceof Error) error.value = e
@@ -234,11 +237,12 @@ export function useResults() {
   }
 
   async function saveBlacklistRules(keywords: string[]) {
-    if (!selectedFile.value) return
+    const file = sanitizeFileName(selectedFile.value)
+    if (!file || !isValidFileNameForApi(file)) return
     isSavingBlacklist.value = true
     error.value = null
     try {
-      const data = await resultsApi.updateResultBlacklistRules(selectedFile.value, keywords)
+      const data = await resultsApi.updateResultBlacklistRules(file, keywords)
       blacklistKeywords.value = data.keywords || []
       await fetchResults()
       await fetchInsights()
@@ -250,51 +254,78 @@ export function useResults() {
     }
   }
 
-  // Watchers
+  // ---- watchers (controlled & minimal) ----
   watch(filters, (val) => {
     localStorage.setItem(STORAGE_KEY_FILTERS, JSON.stringify(val))
   }, { deep: true })
-  watch([selectedFile, filters], fetchResults, { deep: true })
-  watch(selectedFile, () => {
+
+  // single controlled watcher for selectedFile changes
+  watch(selectedFile, (file) => {
+    const safe = sanitizeFileName(file)
+    console.log('[useResults] watch(selectedFile)', { raw: file, safe })
+    if (safe !== file) {
+      // someone wrote unsafe value; correct it silently
+      console.warn('[useResults] correcting unsafe selectedFile', { raw: file, safe })
+      selectedFile.value = safe
+      return
+    }
+    if (!safe) return
+    fetchResults()
     fetchInsights()
     fetchBlacklistRules()
   })
-  watch(selectedFile, (value) => {
-    if (value) localStorage.setItem('lastSelectedResultFile', value)
-  })
+
+  // route.file only affects initial choice (handled in fetchFiles)
+  // but also listen for changes while staying safe
   watch(
-    [() => route.query.file, files],
-    ([routeFile, currentFiles]) => {
-      if (typeof routeFile !== 'string') return
-      if (currentFiles.includes(routeFile)) {
-        selectedFile.value = routeFile
+    () => route.query.file,
+    (q) => {
+      const routeFile = sanitizeFileName(q)
+      if (!routeFile) return
+      const validFiles = fileEntries.value
+        .map((item) => resolveFileName(item as ResultFileEntry))
+        .filter(Boolean)
+      if (validFiles.includes(routeFile)) {
+        setSelectedFileSafely(routeFile, 'watch:route.query.file')
       }
-    },
-    { immediate: true }
+    }
   )
 
+  // real-time updates
+  on('results_updated', async () => {
+    const oldFile = selectedFile.value
+    await fetchFiles()
+    // if file unchanged, refresh content
+    if (selectedFile.value && selectedFile.value === oldFile) {
+      fetchResults()
+      fetchInsights()
+    }
+  })
+
+  // ---- computed ----
   const fileOptions = computed(() =>
-    files.value.map((file) => {
-      const keyword = getKeywordFromFilename(file)
-      const taskName = taskNameByKeyword.value[keyword]
-      return {
-        value: file,
-        taskName: taskName || t('common.unnamed'),
-        label: t('results.filters.taskNameLabel', {
-          task: taskName || t('common.unnamed'),
-        }),
-      }
-    })
+    fileEntries.value
+      .map((file) => {
+        const resolved = resolveFileName(file as ResultFileEntry)
+        if (!resolved) return null
+        return {
+          value: resolved,
+          file_name: resolved,
+          taskName: file.task_name || resolved,
+          task_name: file.task_name || resolved,
+          label: file.task_name || resolved,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
   )
 
-  // Lifecycle
+  // ---- lifecycle ----
   onMounted(() => {
     fetchFiles()
-    fetchTaskNameMap()
   })
 
   return {
-    files,
+    fileEntries,
     selectedFile,
     results,
     insights,
@@ -302,7 +333,7 @@ export function useResults() {
     filters,
     isLoading,
     error,
-    fetchFiles, // Expose to allow manual refresh
+    fetchFiles,
     refreshResults,
     exportSelectedResults,
     deleteSelectedFile,

@@ -210,6 +210,40 @@ async def list_result_filenames() -> list[str]:
     return await asyncio.to_thread(_list_result_filenames_sync)
 
 
+async def list_result_files() -> list[dict]:
+    return await asyncio.to_thread(_list_result_files_sync)
+
+
+def _list_result_files_sync() -> list[dict]:
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                r.result_filename,
+                MAX(r.crawl_time) AS latest_crawl_time,
+                (
+                    SELECT JSON_EXTRACT(r2.raw_json, '$.任务名称')
+                    FROM result_items r2
+                    WHERE r2.result_filename = r.result_filename
+                      AND COALESCE(JSON_EXTRACT(r2.raw_json, '$.任务名称'), '') != ''
+                    ORDER BY r2.id DESC
+                    LIMIT 1
+                ) AS task_name
+            FROM result_items r
+            GROUP BY r.result_filename
+            ORDER BY latest_crawl_time DESC, r.result_filename DESC
+            """
+        ).fetchall()
+    return [
+        {
+            "file_name": str(row["result_filename"]),
+            "task_name": str(row["task_name"]) if row["task_name"] else None,
+        }
+        for row in rows
+    ]
+
+
 def _list_result_filenames_sync() -> list[str]:
     bootstrap_sqlite_storage()
     with sqlite_connection() as conn:

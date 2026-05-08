@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -8,19 +10,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 
 interface FileOption {
   value: string
   label: string
-  taskName?: string
+}
+
+interface ResultFileEntry {
+  file_name?: string
+  value?: string
+  task_name?: string | null
+  taskName?: string | null
+  label?: string
 }
 
 interface Props {
-  files: string[]
-  fileOptions?: FileOption[]
+  files?: Array<string | ResultFileEntry>
+  fileOptions?: Array<FileOption | ResultFileEntry>
   selectedFile: string | null
   aiRecommendedOnly: boolean
   keywordRecommendedOnly: boolean
@@ -34,22 +41,34 @@ interface Props {
 const props = defineProps<Props>()
 const { t } = useI18n()
 
+// Helper to validate file name value
+function isValidFileName(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  // Reject JSON-like strings or [object Object]
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return false
+  if (trimmed === '[object Object]') return false
+  return true
+}
+
 const options = computed(() => {
-  if (!props.isReady) {
-    return []
+  if (!props.isReady) return []
+  const normalize = (entry: string | ResultFileEntry) => {
+    if (typeof entry === 'string') return { value: entry, label: entry }
+    const value = entry.file_name ?? entry.value ?? ''
+    const label = entry.task_name ?? entry.taskName ?? entry.label ?? value
+    return { value, label }
   }
-  if (props.fileOptions && props.fileOptions.length > 0) {
-    return props.fileOptions
-  }
-  return props.files.map((file) => ({ value: file, label: file }))
+  if (props.fileOptions && props.fileOptions.length > 0) return props.fileOptions.map(normalize)
+  return (props.files ?? []).map(normalize)
 })
 
 const selectedLabel = computed(() => {
   if (!props.isReady) return t('results.filters.loadingTaskNames')
   if (options.value.length === 0) return t('results.filters.noResults')
   if (!props.selectedFile) return t('results.filters.chooseResult')
-  const match = options.value.find((option) => option.value === props.selectedFile)
-  return match ? match.label : t('results.filters.taskNameLabel', { task: t('common.unnamed') })
+  return options.value.find((option) => option.value === props.selectedFile)?.label || props.selectedFile
 })
 
 const labelClass = computed(() => {
@@ -76,18 +95,23 @@ const emit = defineEmits<{
   (e: 'manage-blacklist'): void
 }>()
 
+// Safe handler for file selection
+function handleFileChange(value: unknown) {
+  if (!isValidFileName(value)) {
+    console.warn('[ResultsFilterBar] Invalid file value ignored:', value)
+    return
+  }
+  emit('update:selectedFile', value)
+}
+
 function handleToggleAiRecommended(value: boolean) {
   emit('update:aiRecommendedOnly', value)
-  if (value) {
-    emit('update:keywordRecommendedOnly', false)
-  }
+  if (value) emit('update:keywordRecommendedOnly', false)
 }
 
 function handleToggleKeywordRecommended(value: boolean) {
   emit('update:keywordRecommendedOnly', value)
-  if (value) {
-    emit('update:aiRecommendedOnly', false)
-  }
+  if (value) emit('update:aiRecommendedOnly', false)
 }
 </script>
 
@@ -98,7 +122,7 @@ function handleToggleKeywordRecommended(value: boolean) {
         <Label class="text-xs font-semibold text-slate-500">{{ t('results.title') }}</Label>
         <Select
           :model-value="props.selectedFile || undefined"
-          @update:model-value="(value) => emit('update:selectedFile', value as string)"
+          @update:model-value="handleFileChange"
         >
           <SelectTrigger class="w-full" :disabled="isSelectDisabled">
             <span :class="labelClass">

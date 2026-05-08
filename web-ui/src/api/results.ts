@@ -12,7 +12,12 @@ export interface GetResultContentParams {
   limit?: number;
 }
 
-export async function getResultFiles(): Promise<string[]> {
+export interface ResultFileOption {
+  file_name: string
+  task_name: string | null
+}
+
+export async function getResultFiles(): Promise<ResultFileOption[]> {
   const data = await http('/api/results/files')
   return data.files || []
 }

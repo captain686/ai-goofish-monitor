@@ -44,7 +44,7 @@ async def _sync_task_runtime_status(task_id: int, is_running: bool) -> None:
     task = await task_service.get_task(task_id)
     if not task or task.is_running == is_running:
         return
-    await task_service.update_task_status(task_id, is_running)
+    await task_service.set_task_running_flag(task_id, is_running)
     await websocket.broadcast_message(
         "task_status_changed",
         {"id": task_id, "is_running": is_running},
@@ -156,7 +156,14 @@ from fastapi.responses import JSONResponse
 async def read_root(request: Request):
     """提供 Vue 3 SPA 的主页面"""
     if os.path.exists("dist/index.html"):
-        return FileResponse("dist/index.html")
+        return FileResponse(
+            "dist/index.html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     else:
         return JSONResponse(
             status_code=500,
@@ -177,7 +184,14 @@ async def serve_spa(request: Request, full_path: str):
 
     # 其他所有路径都返回 index.html，让前端路由处理
     if os.path.exists("dist/index.html"):
-        return FileResponse("dist/index.html")
+        return FileResponse(
+            "dist/index.html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     else:
         return JSONResponse(
             status_code=500,

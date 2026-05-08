@@ -9,5 +9,4 @@ services:
       - .env
     volumes:
       - .:/app
-      - /app/dist
     restart: unless-stopped
