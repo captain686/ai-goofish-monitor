@@ -366,7 +366,12 @@ async def test_ai_settings(settings: dict):
             "response": extract_ai_response_content(response),
         }
     except Exception as exc:
+        if is_responses_api_unsupported_error(exc) or is_chat_completions_api_unsupported_error(exc):
+            message = "AI模型连接测试失败：当前模型/网关不支持所需接口，请检查模型与 API 兼容性"
+        else:
+            message = "AI模型连接测试失败，请检查服务日志"
+        print(f"AI模型连接测试失败: {exc}")
         return {
             "success": False,
-            "message": f"AI模型连接测试失败: {exc}",
+            "message": message,
         }
