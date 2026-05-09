@@ -59,6 +59,7 @@ from src.services.price_history_service import (
 )
 from src.services.result_storage_service import load_processed_link_keys
 from src.services.seller_profile_cache import SellerProfileCache
+from src.services.account_state_pg_service import load_account_state as pg_load_account_state
 from src.services.search_pagination import (
     advance_search_page,
     is_search_results_response,
@@ -542,14 +543,24 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         stop_scraping = False
 
         if not os.path.exists(state_file):
-            raise FileNotFoundError(f"登录状态文件不存在: {state_file}")
+            backend = os.getenv("APP_DB_BACKEND", "sqlite").strip().lower()
+            if backend in {"postgres", "pgsql", "postgresql"}:
+                pg_state = pg_load_account_state(state_file)
+                if pg_state and isinstance(pg_state.get("state_json"), dict):
+                    snapshot_data = pg_state.get("state_json")
+                else:
+                    raise FileNotFoundError(f"登录状态文件不存在: {state_file}")
+            else:
+                raise FileNotFoundError(f"登录状态文件不存在: {state_file}")
+        else:
+            snapshot_data = None
 
-        snapshot_data = None
-        try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                snapshot_data = json.load(f)
-        except Exception as e:
-            print(f"警告：读取登录状态文件失败，将直接按路径使用: {e}")
+        if snapshot_data is None:
+            try:
+                with open(state_file, "r", encoding="utf-8") as f:
+                    snapshot_data = json.load(f)
+            except Exception as e:
+                print(f"警告：读取登录状态文件失败，将直接按路径使用: {e}")
 
         async with async_playwright() as p:
             # 反检测启动参数

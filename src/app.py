@@ -6,6 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi import Request, HTTPException
+from pydantic import BaseModel
+
+from src.security import (
+    SESSION_COOKIE_NAME,
+    build_session_cookie,
+    parse_session_cookie,
+    session_store,
+)
 
 from src.api.routes import (
     dashboard,
@@ -30,6 +40,7 @@ from src.services.task_log_cleanup_service import cleanup_task_logs
 from src.services.task_generation_service import TaskGenerationService
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
+from src.infrastructure.persistence.postgres_task_repository import PostgresTaskRepository
 from src.infrastructure.config.settings import settings as app_settings
 
 
@@ -39,8 +50,15 @@ scheduler_service = SchedulerService(process_service)
 task_generation_service = TaskGenerationService()
 
 
+def _build_task_repository():
+    backend = os.getenv("APP_DB_BACKEND", "sqlite").strip().lower()
+    if backend in {"postgres", "pgsql", "postgresql"}:
+        return PostgresTaskRepository()
+    return SqliteTaskRepository()
+
+
 async def _sync_task_runtime_status(task_id: int, is_running: bool) -> None:
-    task_service = TaskService(SqliteTaskRepository())
+    task_service = TaskService(_build_task_repository())
     task = await task_service.get_task(task_id)
     if not task or task.is_running == is_running:
         return
@@ -70,8 +88,17 @@ async def lifespan(app: FastAPI):
     bootstrap_sqlite_storage()
     cleanup_task_logs(keep_days=app_settings.task_log_retention_days)
 
+    if (
+        app_settings.web_username == "admin"
+        and app_settings.web_password == "admin123"
+        and os.getenv("ALLOW_DEFAULT_WEB_CREDENTIALS", "false").strip().lower() not in {"1", "true", "yes", "on"}
+    ):
+        raise RuntimeError(
+            "检测到默认管理账号密码(admin/admin123)。请在 .env 中设置 WEB_USERNAME/WEB_PASSWORD，或设置 ALLOW_DEFAULT_WEB_CREDENTIALS=true(仅开发环境)。"
+        )
+
     # 重置所有任务状态为停止
-    task_repo = SqliteTaskRepository()
+    task_repo = _build_task_repository()
     task_service = TaskService(task_repo)
     tasks_list = await task_service.get_all_tasks()
 
@@ -131,26 +158,92 @@ async def health_check():
     return {"status": "healthy", "message": "服务正常运行"}
 
 
-# 认证状态检查端点
-from fastapi import Request, HTTPException
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+# 全局会话鉴权中间件（除白名单外都要求登录）
+AUTH_EXEMPT_PREFIXES = (
+    "/assets",
+    "/static",
+)
+AUTH_EXEMPT_EXACT = {
+    "/",
+    "/login",
+    "/health",
+    "/favicon.ico",
+    "/auth/login",
+    "/auth/me",
+    "/auth/logout",
+}
+
+
+@app.middleware("http")
+async def session_auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # WebSocket upgrade / 前端静态与路由页面放行
+    if path.startswith("/ws"):
+        return await call_next(request)
+
+    if path in AUTH_EXEMPT_EXACT or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
+        return await call_next(request)
+
+    # 非 API 页面请求放行（由前端路由守卫处理登录跳转）
+    if not path.startswith("/api") and not path.startswith("/auth"):
+        return await call_next(request)
+
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = parse_session_cookie(cookie_value)
+    if not session_id or not session_store.get_session(session_id):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+
+    request.state.session_id = session_id
+    return await call_next(request)
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
 
 
-@app.post("/auth/status")
-async def auth_status(payload: LoginRequest):
-    """检查认证状态"""
-    if payload.username == app_settings.web_username and payload.password == app_settings.web_password:
-        return {"authenticated": True, "username": payload.username}
-    raise HTTPException(status_code=401, detail="认证失败")
+@app.post("/auth/login")
+async def auth_login(payload: LoginRequest):
+    if payload.username != app_settings.web_username or payload.password != app_settings.web_password:
+        raise HTTPException(status_code=401, detail="认证失败")
+
+    session_id = session_store.create_session(payload.username)
+    cookie = build_session_cookie(session_id)
+    response = JSONResponse({"authenticated": True, "username": payload.username})
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=cookie,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=12 * 60 * 60,
+        path="/",
+    )
+    return response
 
 
-# 主页路由 - 服务 Vue 3 SPA
-from fastapi.responses import JSONResponse
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = parse_session_cookie(cookie_value)
+    if not session_id:
+        return JSONResponse(status_code=401, content={"authenticated": False})
+    record = session_store.get_session(session_id)
+    if not record:
+        return JSONResponse(status_code=401, content={"authenticated": False})
+    return {"authenticated": True, "username": record.username}
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request):
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = parse_session_cookie(cookie_value)
+    if session_id:
+        session_store.revoke_session(session_id)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return response
 
 @app.get("/")
 async def read_root(request: Request):
