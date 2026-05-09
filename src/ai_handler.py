@@ -32,7 +32,7 @@ from src.ai_message_builder import (
 )
 from src.services.ai_response_parser import (
     EmptyAIResponseError,
-    extract_ai_response_content,
+    extract_ai_response_content_async,
     parse_ai_response_json,
 )
 from src.services.ai_request_compat import (
@@ -409,7 +409,10 @@ async def get_ai_analysis(product_data, image_paths=None, prompt_text=""):
                 api_mode,
                 request_params,
             )
-            ai_response_content = extract_ai_response_content(response)
+            ai_response_content = await extract_ai_response_content_async(
+                response,
+                stream=bool(request_params.get("stream")),
+            )
 
             if AI_DEBUG_MODE:
                 safe_print(f"\n--- [AI DEBUG] 第{attempt + 1}次尝试 ---")

@@ -2,7 +2,7 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /web-ui
 COPY web-ui/package*.json ./
-RUN npm ci
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 COPY web-ui/ .
 RUN npm run build
 
@@ -33,12 +33,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
-RUN apt-get update \
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         tzdata \
         tini \
         libzbar0 \
-    && playwright install --with-deps --no-shell chromium \
+    && (PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright playwright install --with-deps --no-shell chromium \
+        || PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com playwright install --with-deps --no-shell chromium \
+        || playwright install --with-deps --no-shell chromium) \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

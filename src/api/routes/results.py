@@ -17,7 +17,7 @@ from src.services.result_file_service import (
 from src.services.result_storage_service import (
     build_result_ndjson,
     delete_result_file_records,
-    list_result_filenames,
+    list_result_files,
     load_all_result_records,
     load_result_blacklist_keywords,
     load_visible_result_item_ids,
@@ -49,7 +49,7 @@ def _build_download_headers(export_name: str) -> dict[str, str]:
 @router.get("/files")
 async def get_result_files():
     """获取所有结果文件列表"""
-    return {"files": await list_result_filenames()}
+    return {"files": await list_result_files()}
 
 
 @router.get("/files/{filename:path}")
@@ -113,7 +113,8 @@ async def get_result_file_content(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"读取结果文件时出错: {exc}")
+        print(f"读取结果文件时出错: {exc}")
+        raise HTTPException(status_code=500, detail="读取结果文件失败，请检查服务日志")
     if total_items <= 0 and not await result_file_exists(filename):
         raise HTTPException(status_code=404, detail="结果文件未找到")
     paginated_results = enrich_records_with_price_insight(items, filename)
@@ -168,7 +169,8 @@ async def export_result_file_content(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"导出结果文件时出错: {exc}")
+        print(f"导出结果文件时出错: {exc}")
+        raise HTTPException(status_code=500, detail="导出结果文件失败，请检查服务日志")
     if not results and not await result_file_exists(filename):
         raise HTTPException(status_code=404, detail="结果文件未找到")
 

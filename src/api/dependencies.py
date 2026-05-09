@@ -2,6 +2,7 @@
 FastAPI 依赖注入
 提供服务实例的创建和管理
 """
+import os
 from fastapi import Depends
 from src.services.task_service import TaskService
 from src.services.notification_service import NotificationService, build_notification_service
@@ -10,6 +11,7 @@ from src.services.process_service import ProcessService
 from src.services.scheduler_service import SchedulerService
 from src.services.task_generation_service import TaskGenerationService
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
+from src.infrastructure.persistence.postgres_task_repository import PostgresTaskRepository
 from src.infrastructure.external.ai_client import AIClient
 
 
@@ -40,7 +42,11 @@ def set_task_generation_service(service: TaskGenerationService):
 # 服务依赖注入
 def get_task_service() -> TaskService:
     """获取任务管理服务实例"""
-    repository = SqliteTaskRepository()
+    backend = os.getenv("APP_DB_BACKEND", "sqlite").strip().lower()
+    if backend in {"postgres", "pgsql", "postgresql"}:
+        repository = PostgresTaskRepository()
+    else:
+        repository = SqliteTaskRepository()
     return TaskService(repository)
 
 

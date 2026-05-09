@@ -8,23 +8,19 @@ class WebSocketService {
   private shouldConnect = false;
 
   constructor() {
-    // 延迟连接，等待认证完成
-    // 只有在已登录时才尝试连接
     if (localStorage.getItem('auth_logged_in') === 'true') {
-      this.connect();
+      this.start();
     }
   }
 
   public start() {
-    // 手动启动 WebSocket 连接
     this.shouldConnect = true;
     if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-      this.connect();
+      void this.connect();
     }
   }
 
   public stop() {
-    // 停止 WebSocket 连接
     this.shouldConnect = false;
     if (this.ws) {
       this.ws.close();
@@ -32,18 +28,36 @@ class WebSocketService {
     }
   }
 
-  private connect() {
-    // Determine the protocol (ws or wss) based on the current page protocol
+  private async fetchWsTicket(): Promise<string | null> {
+    try {
+      const response = await fetch('/api/ws/ticket', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.ticket || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async connect() {
+    const ticket = await this.fetchWsTicket();
+    if (!ticket) {
+      if (this.shouldConnect) {
+        setTimeout(() => void this.connect(), this.reconnectInterval);
+      }
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host; // This includes port if present
+    const host = window.location.host;
+    const url = `${protocol}//${host}/ws?ticket=${encodeURIComponent(ticket)}`;
 
-    const url = `${protocol}//${host}/ws`;
-
-    console.log(`Connecting to WebSocket at ${url}`);
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
-      console.log('WebSocket connected');
       this.isConnected = true;
       this.emit('connected', { isConnected: true });
     };
@@ -51,7 +65,6 @@ class WebSocketService {
     this.ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        // Expecting message format: { type: 'event_type', data: ... }
         if (message.type) {
           this.emit(message.type, message.data);
         }
@@ -62,19 +75,15 @@ class WebSocketService {
 
     this.ws.onclose = () => {
       if (this.isConnected) {
-        console.log('WebSocket disconnected');
         this.isConnected = false;
         this.emit('disconnected', { isConnected: false });
       }
-      // 只有在 shouldConnect 为 true 或已登录时才重连
       if (this.shouldConnect || localStorage.getItem('auth_logged_in') === 'true') {
-        setTimeout(() => this.connect(), this.reconnectInterval);
+        setTimeout(() => void this.connect(), this.reconnectInterval);
       }
     };
 
-    this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      // Close will trigger onclose which handles reconnect
+    this.ws.onerror = () => {
       this.ws?.close();
     };
   }
@@ -104,5 +113,4 @@ class WebSocketService {
   }
 }
 
-// Export a singleton instance
 export const wsService = new WebSocketService();

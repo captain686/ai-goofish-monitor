@@ -100,12 +100,11 @@ watch(() => [props.mode, props.initialData, props.defaultValues, props.defaultAc
       ...props.initialData,
       ...defaultValues,
       account_strategy:
-        defaultValues.account_strategy ||
         props.initialData.account_strategy ||
         (props.initialData.account_state_file ? 'fixed' : 'auto'),
       account_state_file:
-        defaultValues.account_state_file ||
         props.initialData.account_state_file ||
+        defaultValues.account_state_file ||
         AUTO_ACCOUNT_VALUE,
       analyze_images: defaultValues.analyze_images ?? props.initialData.analyze_images ?? true,
       free_shipping: defaultValues.free_shipping ?? props.initialData.free_shipping ?? true,

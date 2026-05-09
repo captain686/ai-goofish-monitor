@@ -29,7 +29,7 @@ from src.services.ai_request_compat import (
 )
 from src.services.ai_response_parser import (
     EmptyAIResponseError,
-    extract_ai_response_content,
+    extract_ai_response_content_async,
     parse_ai_response_json,
 )
 
@@ -218,7 +218,7 @@ class AIClient:
                     api_mode,
                     request_params,
                 )
-                return extract_ai_response_content(response)
+                return await extract_ai_response_content_async(response, stream=bool(self.settings.stream))
             except EmptyAIResponseError as exc:
                 if attempt < max_attempts - 1:
                     print(

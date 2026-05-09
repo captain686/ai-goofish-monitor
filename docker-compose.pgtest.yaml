@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ai-goofish-monitor-pg
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_goofish
+    ports:
+      - "55432:5432"
+    volumes:
+      - ./data/pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  app:
+    image: ${APP_IMAGE:-ai-goofish-local:test}
+    pull_policy: never
+    depends_on:
+      - postgres
+    environment:
+      APP_DATABASE_FILE: /app/data/app.sqlite3
+      APP_DB_BACKEND: postgres
+      APP_POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/ai_goofish
+      ALLOW_DEFAULT_WEB_CREDENTIALS: "true"

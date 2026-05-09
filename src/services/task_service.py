@@ -43,3 +43,10 @@ class TaskService:
         """更新任务运行状态"""
         task_update = TaskUpdate(is_running=is_running)
         return await self.update_task(task_id, task_update)
+
+    async def set_task_running_flag(self, task_id: int, is_running: bool) -> Task:
+        """仅更新任务运行状态，避免影响其他字段。"""
+        task = await self.repository.find_by_id(task_id)
+        if not task:
+            raise ValueError(f"任务 {task_id} 不存在")
+        return await self.repository.save(task.model_copy(update={"is_running": is_running}))

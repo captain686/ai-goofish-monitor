@@ -122,8 +122,8 @@ async def generate_task(
     except HTTPException:
         raise
     except Exception as e:
-        error_msg = f"AI任务生成API发生未知错误: {str(e)}"
-        print(error_msg)
+        error_msg = "AI任务生成失败，请检查服务日志"
+        print(f"AI任务生成API发生未知错误: {str(e)}")
         import traceback
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=error_msg)
@@ -201,11 +201,10 @@ async def update_task(
             except HTTPException:
                 raise
             except Exception as e:
-                error_msg = f"重新生成 criteria 文件时出错: {str(e)}"
-                print(error_msg)
+                print(f"重新生成 criteria 文件时出错: {str(e)}")
                 import traceback
                 print(traceback.format_exc())
-                raise HTTPException(status_code=500, detail=error_msg)
+                raise HTTPException(status_code=500, detail="AI标准文件生成失败，请检查服务日志")
         task = await service.update_task(task_id, task_update)
         await _reload_scheduler_if_needed(service, scheduler_service)
         return {"message": "任务更新成功", "task": serialize_task(task, scheduler_service)}

@@ -51,6 +51,43 @@ def extract_ai_response_content(response: Any) -> str:
     raise ValueError(f"无法识别的AI响应类型: {type(response).__name__}")
 
 
+async def extract_ai_response_content_async(response: Any, stream: bool = False) -> str:
+    """按模式提取 AI 响应内容；stream 模式优先按异步流消费。"""
+    if not stream:
+        return extract_ai_response_content(response)
+
+    if response is None:
+        raise EmptyAIResponseError("AI响应对象为空。")
+
+    async_iter = getattr(response, "__aiter__", None)
+    if callable(async_iter):
+        parts: list[str] = []
+        async for event in response:
+            choices = getattr(event, "choices", None)
+            if choices:
+                delta = getattr(choices[0], "delta", None)
+                if delta is not None:
+                    content = getattr(delta, "content", None)
+                    if isinstance(content, str):
+                        parts.append(content)
+                    elif isinstance(content, list):
+                        for item in content:
+                            text = getattr(item, "text", None)
+                            if isinstance(text, str):
+                                parts.append(text)
+                continue
+
+            event_type = getattr(event, "type", "")
+            if event_type in {"response.output_text.delta", "response.output_text"}:
+                delta_text = getattr(event, "delta", None) or getattr(event, "text", None)
+                if isinstance(delta_text, str):
+                    parts.append(delta_text)
+
+        return _normalize_text_content("".join(parts))
+
+    return extract_ai_response_content(response)
+
+
 def parse_ai_response_json(content: str) -> dict:
     """解析 AI 文本响应中的 JSON。"""
     cleaned = _strip_code_fences(content)

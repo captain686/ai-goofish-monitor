@@ -2,9 +2,15 @@
 通知配置读写与校验服务
 """
 import json
+import os
+import ipaddress
 from urllib.parse import urlparse
 
 from src.infrastructure.config.env_manager import env_manager
+from src.services.notification_config_pg_service import (
+    load_notification_config as pg_load_notification_config,
+    save_notification_config as pg_save_notification_config,
+)
 from src.infrastructure.config.settings import (
     DEFAULT_TELEGRAM_API_BASE_URL,
     NotificationSettings,
@@ -186,6 +192,11 @@ def prepare_notification_settings_update(
             deletions.append(env_name)
             continue
         updates[env_name] = value
+
+    persist_payload = {key: value for key, value in updates.items()}
+    for key in deletions:
+        persist_payload[key] = None
+    persist_notification_settings_payload(persist_payload)
     return updates, deletions, candidate_settings
 
 
@@ -250,26 +261,27 @@ def _build_channel_test_values(
 
 
 def load_notification_settings() -> NotificationSettings:
+    payload = _load_notification_settings_payload()
     return _build_notification_settings_model(
         {
-            "ntfy_topic_url": _normalize_existing_text(env_manager.get_value("NTFY_TOPIC_URL")),
-            "gotify_url": _normalize_existing_text(env_manager.get_value("GOTIFY_URL")),
-            "gotify_token": _normalize_existing_text(env_manager.get_value("GOTIFY_TOKEN")),
-            "bark_url": _normalize_existing_text(env_manager.get_value("BARK_URL")),
-            "wx_bot_url": _normalize_existing_text(env_manager.get_value("WX_BOT_URL")),
-            "telegram_bot_token": _normalize_existing_text(env_manager.get_value("TELEGRAM_BOT_TOKEN")),
-            "telegram_chat_id": _normalize_existing_text(env_manager.get_value("TELEGRAM_CHAT_ID")),
+            "ntfy_topic_url": _normalize_existing_text(payload.get("NTFY_TOPIC_URL")),
+            "gotify_url": _normalize_existing_text(payload.get("GOTIFY_URL")),
+            "gotify_token": _normalize_existing_text(payload.get("GOTIFY_TOKEN")),
+            "bark_url": _normalize_existing_text(payload.get("BARK_URL")),
+            "wx_bot_url": _normalize_existing_text(payload.get("WX_BOT_URL")),
+            "telegram_bot_token": _normalize_existing_text(payload.get("TELEGRAM_BOT_TOKEN")),
+            "telegram_chat_id": _normalize_existing_text(payload.get("TELEGRAM_CHAT_ID")),
             "telegram_api_base_url": (
-                _normalize_existing_text(env_manager.get_value("TELEGRAM_API_BASE_URL"))
+                _normalize_existing_text(payload.get("TELEGRAM_API_BASE_URL"))
                 or DEFAULT_TELEGRAM_API_BASE_URL
             ),
-            "webhook_url": _normalize_existing_text(env_manager.get_value("WEBHOOK_URL")),
-            "webhook_method": _normalize_existing_text(env_manager.get_value("WEBHOOK_METHOD")) or "POST",
-            "webhook_headers": _normalize_existing_text(env_manager.get_value("WEBHOOK_HEADERS")),
-            "webhook_content_type": _normalize_existing_text(env_manager.get_value("WEBHOOK_CONTENT_TYPE")) or "JSON",
-            "webhook_query_parameters": _normalize_existing_text(env_manager.get_value("WEBHOOK_QUERY_PARAMETERS")),
-            "webhook_body": _normalize_existing_text(env_manager.get_value("WEBHOOK_BODY")),
-            "pcurl_to_mobile": _env_bool(env_manager.get_value("PCURL_TO_MOBILE"), True),
+            "webhook_url": _normalize_existing_text(payload.get("WEBHOOK_URL")),
+            "webhook_method": _normalize_existing_text(payload.get("WEBHOOK_METHOD")) or "POST",
+            "webhook_headers": _normalize_existing_text(payload.get("WEBHOOK_HEADERS")),
+            "webhook_content_type": _normalize_existing_text(payload.get("WEBHOOK_CONTENT_TYPE")) or "JSON",
+            "webhook_query_parameters": _normalize_existing_text(payload.get("WEBHOOK_QUERY_PARAMETERS")),
+            "webhook_body": _normalize_existing_text(payload.get("WEBHOOK_BODY")),
+            "pcurl_to_mobile": _env_bool(payload.get("PCURL_TO_MOBILE"), True),
         }
     )
 
@@ -300,6 +312,40 @@ def _env_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_pg_enabled() -> bool:
+    backend = os.getenv("APP_DB_BACKEND", "sqlite").strip().lower()
+    return backend in {"postgres", "pgsql", "postgresql"}
+
+
+def _load_notification_settings_payload() -> dict:
+    if _is_pg_enabled():
+        payload = pg_load_notification_config("notification_settings")
+        if isinstance(payload, dict) and payload:
+            return payload
+    return {
+        "NTFY_TOPIC_URL": env_manager.get_value("NTFY_TOPIC_URL"),
+        "GOTIFY_URL": env_manager.get_value("GOTIFY_URL"),
+        "GOTIFY_TOKEN": env_manager.get_value("GOTIFY_TOKEN"),
+        "BARK_URL": env_manager.get_value("BARK_URL"),
+        "WX_BOT_URL": env_manager.get_value("WX_BOT_URL"),
+        "TELEGRAM_BOT_TOKEN": env_manager.get_value("TELEGRAM_BOT_TOKEN"),
+        "TELEGRAM_CHAT_ID": env_manager.get_value("TELEGRAM_CHAT_ID"),
+        "TELEGRAM_API_BASE_URL": env_manager.get_value("TELEGRAM_API_BASE_URL"),
+        "WEBHOOK_URL": env_manager.get_value("WEBHOOK_URL"),
+        "WEBHOOK_METHOD": env_manager.get_value("WEBHOOK_METHOD"),
+        "WEBHOOK_HEADERS": env_manager.get_value("WEBHOOK_HEADERS"),
+        "WEBHOOK_CONTENT_TYPE": env_manager.get_value("WEBHOOK_CONTENT_TYPE"),
+        "WEBHOOK_QUERY_PARAMETERS": env_manager.get_value("WEBHOOK_QUERY_PARAMETERS"),
+        "WEBHOOK_BODY": env_manager.get_value("WEBHOOK_BODY"),
+        "PCURL_TO_MOBILE": env_manager.get_value("PCURL_TO_MOBILE"),
+    }
+
+
+def persist_notification_settings_payload(payload: dict) -> None:
+    if _is_pg_enabled():
+        pg_save_notification_config("notification_settings", payload)
 
 
 def _normalize_notification_values(values: dict) -> dict:
@@ -377,9 +423,32 @@ def _validate_notification_settings(settings: NotificationSettings) -> None:
 
 def _validate_http_url(field_name: str, value: str) -> None:
     parsed = urlparse(value)
+    # 业务场景限制：通知回调仅允许 HTTP/HTTPS
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise NotificationSettingsValidationError(
-            f"{field_name} 必须是合法的 HTTP/HTTPS URL"
+            f"{field_name} 仅允许 HTTP/HTTPS URL"
+        )
+
+    host = (parsed.hostname or "").strip().lower()
+    if host in {"localhost"}:
+        raise NotificationSettingsValidationError(f"{field_name} 不允许使用 localhost")
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # 非 IP 主机名这里不做 DNS 解析，交由部署层面白名单/出口策略控制
+        return
+
+    if (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    ):
+        raise NotificationSettingsValidationError(
+            f"{field_name} 不允许使用内网/本地地址"
         )
 
 

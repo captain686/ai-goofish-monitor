@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from src.services.failure_guard_pg_service import load_state as pg_load_state, upsert_state as pg_upsert_state
+
 
 try:
     from zoneinfo import ZoneInfo  # py3.9+
@@ -85,6 +87,11 @@ def _cookie_changed(
     if current is None or previous_mtime is None:
         return False
     return current > (previous_mtime + 1e-6)
+
+
+def _is_pg_enabled() -> bool:
+    backend = os.getenv("APP_DB_BACKEND", "sqlite").strip().lower()
+    return backend in {"postgres", "pgsql", "postgresql"}
 
 
 class _FileLock:
@@ -177,6 +184,8 @@ class FailureGuard:
         self.tz_name = tz_name or os.getenv("TASK_FAILURE_TZ") or "Asia/Shanghai"
 
     def _load(self) -> dict:
+        if _is_pg_enabled():
+            return {"version": 1, "tasks": {}}
         data = _read_json_file(self.path)
         if "tasks" not in data or not isinstance(data.get("tasks"), dict):
             data = {"version": 1, "tasks": {}}
@@ -184,9 +193,44 @@ class FailureGuard:
         return data
 
     def _save(self, data: dict) -> None:
+        if _is_pg_enabled():
+            return
         _atomic_write_json(self.path, data)
 
     def _update_task(self, task_key: str, updater) -> dict:
+        if _is_pg_enabled():
+            current_entry = pg_load_state(task_key) or {}
+            mapped_entry = {
+                "consecutive_failures": _as_int(current_entry.get("consecutive_failures"), 0),
+                "paused_until": _dt_to_str(current_entry.get("paused_until")),
+                "last_notified_date": (
+                    current_entry.get("last_notified_at").date().isoformat()
+                    if current_entry.get("last_notified_at")
+                    else None
+                ),
+                "last_failure_reason": current_entry.get("last_reason"),
+                "cookie_path": current_entry.get("cookie_path"),
+                "cookie_mtime": _get_mtime(current_entry.get("cookie_path")),
+            }
+            entry = updater(mapped_entry) or mapped_entry
+            last_notified_at = None
+            if entry.get("last_notified_date"):
+                try:
+                    last_notified_at = datetime.fromisoformat(
+                        f"{entry['last_notified_date']}T00:00:00"
+                    )
+                except ValueError:
+                    last_notified_at = None
+            pg_upsert_state(
+                task_name=task_key,
+                cookie_path=entry.get("cookie_path"),
+                consecutive_failures=_as_int(entry.get("consecutive_failures"), 0),
+                last_reason=entry.get("last_failure_reason"),
+                paused_until=_str_to_dt(entry.get("paused_until")),
+                last_notified_at=last_notified_at,
+            )
+            return entry
+
         _ensure_parent_dir(self.path)
         with open(self.path, "a+", encoding="utf-8") as fh:
             with _FileLock(fh):
@@ -227,10 +271,25 @@ class FailureGuard:
         current = _now(self.tz_name, now=now)
         today = _today_str(self.tz_name, now=current)
 
-        data = self._load()
-        entry = (data.get("tasks") or {}).get(task_key) or {}
-        if not isinstance(entry, dict):
-            entry = {}
+        if _is_pg_enabled():
+            current_entry = pg_load_state(task_key) or {}
+            entry = {
+                "consecutive_failures": _as_int(current_entry.get("consecutive_failures"), 0),
+                "paused_until": _dt_to_str(current_entry.get("paused_until")),
+                "last_notified_date": (
+                    current_entry.get("last_notified_at").date().isoformat()
+                    if current_entry.get("last_notified_at")
+                    else None
+                ),
+                "last_failure_reason": current_entry.get("last_reason"),
+                "cookie_path": current_entry.get("cookie_path"),
+                "cookie_mtime": _get_mtime(current_entry.get("cookie_path")),
+            }
+        else:
+            data = self._load()
+            entry = (data.get("tasks") or {}).get(task_key) or {}
+            if not isinstance(entry, dict):
+                entry = {}
 
         paused_until = _str_to_dt(entry.get("paused_until"))
         consecutive = _as_int(entry.get("consecutive_failures"), 0)

@@ -34,7 +34,8 @@ async def update_login_state(
             await f.write(data.content)
         return {"message": f"登录状态文件 '{state_file}' 已成功更新。"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"写入登录状态文件时出错: {e}")
+        print(f"写入登录状态文件时出错: {e}")
+        raise HTTPException(status_code=500, detail="写入登录状态文件失败，请检查服务日志")
 
 
 @router.delete("", response_model=dict)
@@ -47,6 +48,7 @@ async def delete_login_state():
             os.remove(state_file)
             return {"message": "登录状态文件已成功删除。"}
         except OSError as e:
-            raise HTTPException(status_code=500, detail=f"删除登录状态文件时出错: {e}")
+            print(f"删除登录状态文件时出错: {e}")
+            raise HTTPException(status_code=500, detail="删除登录状态文件失败，请检查服务日志")
 
     return {"message": "登录状态文件不存在，无需删除。"}

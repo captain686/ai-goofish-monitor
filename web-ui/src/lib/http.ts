@@ -6,10 +6,9 @@ interface FetchOptions extends RequestInit {
 
 export async function http(url: string, options: FetchOptions = {}) {
   const { logout } = useAuth()
-  
+
   const headers = new Headers(options.headers)
 
-  // Handle Query Params
   let fullUrl = url
   if (options.params) {
     const searchParams = new URLSearchParams()
@@ -26,15 +25,14 @@ export async function http(url: string, options: FetchOptions = {}) {
 
   const config: RequestInit = {
     ...options,
+    credentials: 'include',
     headers,
   }
 
   const response = await fetch(fullUrl, config)
 
   if (response.status === 401) {
-    // Basic Auth failed or session expired
-    logout()
-    // Optional: Redirect to login handled by router or state change
+    await logout()
     throw new Error('Unauthorized')
   }
 
@@ -43,7 +41,6 @@ export async function http(url: string, options: FetchOptions = {}) {
     throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
   }
 
-  // Handle 204 No Content
   if (response.status === 204) {
     return null
   }
