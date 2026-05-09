@@ -518,7 +518,7 @@ def test_ai_test_endpoint_passes_stream_when_enabled(tmp_path, monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert request_history[0][0] == "chat"
-    assert request_history[0][1]["stream"] is True
+    assert request_history[0][1].get("stream") is True
 
 
 def test_update_ai_settings_persists_failure_threshold(tmp_path, monkeypatch):
@@ -634,6 +634,7 @@ def test_ai_runtime_uses_stream_from_env(tmp_path, monkeypatch):
             "OPENAI_API_KEY": "demo",
             "OPENAI_BASE_URL": "https://example.com/v1/",
             "OPENAI_MODEL_NAME": "demo-model",
+            "STREAM": True,
         },
     )
 
@@ -641,7 +642,7 @@ def test_ai_runtime_uses_stream_from_env(tmp_path, monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert request_history[0][0] == "chat"
-    assert request_history[0][1]["stream"] is True
+    assert request_history[0][1].get("stream") is True
 
 
 def test_update_ai_settings_rejects_invalid_failure_threshold(tmp_path, monkeypatch):

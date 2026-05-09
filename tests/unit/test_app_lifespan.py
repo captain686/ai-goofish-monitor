@@ -43,6 +43,8 @@ def test_lifespan_cleans_task_logs_on_startup(monkeypatch):
     fake_scheduler = _FakeSchedulerService()
     fake_process = _FakeProcessService()
 
+    monkeypatch.setenv("ALLOW_DEFAULT_WEB_CREDENTIALS", "true")
+
     monkeypatch.setattr(app_module, "scheduler_service", fake_scheduler)
     monkeypatch.setattr(app_module, "process_service", fake_process)
     monkeypatch.setattr(app_module, "TaskService", _FakeTaskService)
