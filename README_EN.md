@@ -33,7 +33,7 @@ A Playwright and AI-powered multi-task real-time monitoring tool for Xianyu (闲
 - Chrome or Edge on desktop systems. On Linux, Chromium also works. `start.sh` checks this prerequisite before continuing
 
 ```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor
+git clone https://github.com/captain686/ai-goofish-monitor
 cd ai-goofish-monitor
 cp .env.example .env
 ```
@@ -74,7 +74,7 @@ chmod +x start.sh
 ## 🐳 Docker Deployment (Recommended)
 
 ```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor && cd ai-goofish-monitor
+git clone https://github.com/captain686/ai-goofish-monitor && cd ai-goofish-monitor
 cp .env.example .env
 vim .env # fill in the required values
 docker compose up -d

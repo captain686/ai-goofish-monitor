@@ -26,7 +26,7 @@
 ## 🐳 Docker 部署（推荐）
 
 ```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor && cd ai-goofish-monitor
+git clone https://github.com/captain686/ai-goofish-monitor && cd ai-goofish-monitor
 cp .env.example .env
 vim .env # 填写相关配置项
 docker compose up -d
@@ -132,7 +132,7 @@ docker compose up -d
 - Chrome / Edge 浏览器（Linux 环境也可使用 Chromium；`start.sh` 会先检查浏览器是否存在）
 
 ```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor
+git clone https://github.com/captain686/ai-goofish-monitor
 cd ai-goofish-monitor
 cp .env.example .env
 ```
