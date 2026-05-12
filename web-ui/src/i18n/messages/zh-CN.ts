@@ -167,8 +167,8 @@ const zhCN = {
       blacklistDialogTitle: '编辑黑名单规则',
       blacklistDialogDescription: '命中这些规则的商品会从结果页、导出和价格走势里排除，但原始结果文件仍会保留。',
       blacklistRulesLabel: '黑名单关键词',
-      blacklistRulesHint: '每行一个关键词，也支持逗号分隔。英文和数字会按完整词匹配。',
-      blacklistRulesPlaceholder: '示例：intel\npro 13\n官翻',
+      blacklistRulesHint: '每行一个关键词，也支持逗号分隔。默认不区分大小写。需要一条同时匹配多种写法时，可用高级规则，例如：re:\\b(pm|pro[\\s-]?max)\\b',
+      blacklistRulesPlaceholder: '示例：intel\npro 13\nre:\\b(pm|pro[\\s-]?max)\\b',
       confirmBlacklistSave: '保存规则',
     },
     grid: {

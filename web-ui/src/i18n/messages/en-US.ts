@@ -167,8 +167,8 @@ const enUS = {
       blacklistDialogTitle: 'Edit Blacklist Rules',
       blacklistDialogDescription: 'Matched items are excluded from the result list, exports, and price trends, while the raw result file is still kept.',
       blacklistRulesLabel: 'Blacklist keywords',
-      blacklistRulesHint: 'Use one keyword per line, or separate them with commas. Alphanumeric entries match whole words.',
-      blacklistRulesPlaceholder: 'Example: intel\npro 13\nrefurbished',
+      blacklistRulesHint: 'Use one keyword per line, or separate them with commas. Matching is case-insensitive by default. For one rule covering multiple forms, use an advanced rule such as: re:\\b(pm|pro[\\s-]?max)\\b',
+      blacklistRulesPlaceholder: 'Example: intel\npro 13\nre:\\b(pm|pro[\\s-]?max)\\b',
       confirmBlacklistSave: 'Save Rules',
     },
     grid: {
