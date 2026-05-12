@@ -16,6 +16,18 @@ A Playwright and AI-powered multi-task real-time monitoring tool for Xianyu (闲
 - **Account & Proxy Rotation**: Multi-account management, task-account binding, proxy pool rotation with failure retry
 - **Docker Deployment**: One-click containerized deployment
 
+## Recent Changes Synced
+
+- **Results UX upgrades**: added blacklist filtering (including regex aliases), item block/unblock, persisted filters, and immediate refresh after filter changes.
+- **AI reliability**: improved streamed-response parsing and `reasoning_content` fallback compatibility; auto-downgrades when gateways reject `response_format`; fixed httpx crash when `NO_PROXY` contains IPv6 CIDR.
+- **Task runtime stability**: retries now stop immediately once the AI-abort threshold is reached, reducing pointless retries and risk-control pressure.
+- **Runtime consistency**: unified task/prompt/account-state loading across Web/API/scraper paths to reduce SQLite/PG divergence.
+- **Settings & safety**: synced AI stream toggle with failure-threshold settings; narrowed channel test validation scope; sanitized AI test error exposure.
+- **Frontend fixes**: region selector now allows selecting parent regions without children (e.g., Guangdong province); fixed i18n parsing issues for webhook/cron examples.
+- **Notification config fix**: `.env` now takes precedence over stale runtime values.
+- **Engineering updates**: added PostgreSQL migration tooling and runtime dependency cleanup for smoother SQLite → PG evolution.
+
+
 ## Screenshots
 
 ![Monitoring Overview](static/img.png)
